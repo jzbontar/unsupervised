@@ -1,6 +1,6 @@
 require 'sys'
 require '1_data'
-require 'gfx.go'
+require 'image'
 require 'nn'
 require 'optim'
 require 'unsup'
@@ -135,8 +135,8 @@ for t = 1,maxiter do
                                  symmetric=true}
 
       -- live display
-      _win1_ = gfx.image(dd, {win=_win1_, legend='Decoder filters', zoom=3})
-      _win2_ = gfx.image(de, {win=_win2_, legend='Encoder filters', zoom=3})
+      image.savePNG(string.format('img/d_%010d.png', t), dd)
+      image.savePNG(string.format('img/e_%010d.png', t), de)
       print(sys.toc())
       sys.tic()
    end
