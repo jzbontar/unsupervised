@@ -5,10 +5,16 @@ require 'nn'
 require 'optim'
 require 'unsup'
 require 'torch_datasets'
+require 'fista'
+require 'cunn'
+require 'cutorch'
+require 'jzt'
 
 inputsize = 28
 nfiltersout = 256
 batch_size = 128
+
+torch.setdefaulttensortype('torch.FloatTensor')
 
 -- datafile = 'http://data.neuflow.org/data/tr-berkeley-N5K-M56x56-lcn.ascii'
 -- filename = paths.basename(datafile)
@@ -18,7 +24,7 @@ batch_size = 128
 -- dataset = getdata(filename, inputsize)
 
 X_tr, y_tr, X_te, y_te = torch_datasets.mnist()
-X_tr = X_tr:double()
+--X_tr = X_tr:double()
 mean = X_tr:mean()
 std = X_tr:std()
 X_tr = X_tr:add(-mean):div(std)
@@ -42,6 +48,7 @@ fista_params.Lstep = 1.5
 fista_params.maxiter = 50
 fista_params.maxline = 20
 fista_params.errthres = 1e-4
+-- fista_params.verbose = true
 fista_params.doFistaUpdate = true
 
 sgd_params = {}
@@ -49,6 +56,12 @@ sgd_params.learningRate = 2e-3
 sgd_params.learningRateDecay = 1e-5
 
 dec, grad_dec = decoder:getParameters()
+
+-- float
+-- X_tr = X_tr:cuda()
+-- fista_mse = fista_mse:cuda()
+-- decoder = decoder:cuda()
+-- code = code:cuda()
 
 sys.tic()
 iter = -1
@@ -80,10 +93,12 @@ for epoch = 1,10 do
 
       function prox_fista(x, L)
          x:shrinkage(1 / L)
+         -- jzt.shrink(x, 1 / L, x)
       end
 
       code:fill(0)
-      optim.FistaLS(f_fista, g_fista, prox_fista, code, fista_params)
+      FistaLS(f_fista, g_fista, prox_fista, code, fista_params)
+      --os.exit(0)
 
       -- 2. update encoder and decoder
       decoder:zeroGradParameters()
@@ -93,9 +108,10 @@ for epoch = 1,10 do
       optim.sgd(function(x) return 0, grad_dec end, dec, sgdconf)
 
       -- normalize the dictionary
+--      jzt.div_mat_vect(decoder.weight, decoder.weight:norm(2, 1), decoder.weight, 1)
       w = decoder.weight
       for i=1,w:size(2) do
-         w:select(2,i):div(w:select(2,i):norm()+1e-12)
+         w:select(2,i):div(w:select(2,i):norm())
       end
 
       if math.fmod(iter, 10) == 0 then
@@ -109,8 +125,8 @@ for epoch = 1,10 do
                                     nrow=math.floor(math.sqrt(nfiltersout)),
                                     symmetric=true}
 
-         image.savePNG(string.format('img/d_%010d.png', t), dd)
-         print(t, sys.toc())
+         image.savePNG(string.format('img/d_%02d_%010d.png', epoch, t), dd)
+         print(epoch, t, sys.toc())
          sys.tic()
       end
    end
