@@ -1,2 +1,5 @@
 *.ascii
 *.bin
+*.swp
+img/
+test.lua
