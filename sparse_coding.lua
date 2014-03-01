@@ -10,25 +10,18 @@ require 'cunn'
 require 'cutorch'
 require 'jzt'
 
+os.execute('rm img/*')
+
 inputsize = 28
-nfiltersout = 1024
+nfiltersout = 256
 batch_size = 128
 
 fista_params = {}
-fista_params.L = 256
+fista_params.L = 128
 fista_params.maxiter = 50
 
 sgd_params = {}
-sgd_params.learningRate = 0.002
-
-os.execute('rm img/*')
-
--- datafile = 'http://data.neuflow.org/data/tr-berkeley-N5K-M56x56-lcn.ascii'
--- filename = paths.basename(datafile)
--- if not paths.filep(filename) then
---    os.execute('wget ' .. datafile)
--- end
--- dataset = getdata(filename, inputsize)
+sgd_params.learningRate = 0.001
 
 X_tr, y_tr, X_te, y_te = torch_datasets.mnist()
 mean = X_tr:mean()
@@ -36,7 +29,7 @@ std = X_tr:std()
 X_tr = X_tr:add(-mean):div(std)
 X_tr = X_tr:cuda()
 
-fista_mse = nn.MSECriterion():cuda()
+fista_mse = jzt.MSECost()
 fista_mse.sizeAverage = false
 
 inputSize = inputsize * inputsize
@@ -63,7 +56,7 @@ fista = new_fista(f, prox, fista_params)
 
 sys.tic()
 iter = -1
-for epoch = 1,10 do
+for epoch = 1,5 do
    for t = 1,60000 - batch_size, batch_size do
       iter = iter + 1
       input = X_tr:narrow(1, t, batch_size)
