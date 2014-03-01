@@ -34,19 +34,20 @@ X_tr, y_tr, X_te, y_te = torch_datasets.mnist()
 mean = X_tr:mean()
 std = X_tr:std()
 X_tr = X_tr:add(-mean):div(std)
+X_tr = X_tr:cuda()
 
-fista_mse = nn.MSECriterion()
+fista_mse = nn.MSECriterion():cuda()
 fista_mse.sizeAverage = false
-sgd_mse = nn.MSECriterion()
-sgd_mse.sizeAverage = false
 
 inputSize = inputsize * inputsize
 outputSize = nfiltersout
 
-decoder = jzt.Linear(outputSize, inputSize, false)
-code = torch.Tensor(batch_size, outputSize)
+decoder = jzt.Linear(outputSize, inputSize, false):cuda()  -- No bias linear layer
+dec, grad_dec = decoder:getParameters()
 
-function f(x, mode)
+code = torch.CudaTensor(batch_size, outputSize)
+
+function f(x)
    decoder:updateOutput(x)
    fista_mse:updateOutput(decoder.output, input)
    fista_mse:updateGradInput(decoder.output, input)
@@ -55,18 +56,10 @@ function f(x, mode)
 end
 
 function prox(x, L)
-   jzt.shrink(x, 1 / L, x)
+   jzt.shrink(x, x, 1 / L)
 end
 
 fista = new_fista(f, prox, fista_params)
-
--- float
-X_tr = X_tr:cuda()
-fista_mse = fista_mse:cuda()
-decoder = decoder:cuda()
-code = code:cuda()
-
-dec, grad_dec = decoder:getParameters()
 
 sys.tic()
 iter = -1
