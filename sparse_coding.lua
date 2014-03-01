@@ -11,10 +11,17 @@ require 'cutorch'
 require 'jzt'
 
 inputsize = 28
-nfiltersout = 512
+nfiltersout = 1024
 batch_size = 128
 
--- torch.setdefaulttensortype('torch.CudaTensor')
+fista_params = {}
+fista_params.L = 256
+fista_params.maxiter = 50
+
+sgd_params = {}
+sgd_params.learningRate = 0.002
+
+os.execute('rm img/*')
 
 -- datafile = 'http://data.neuflow.org/data/tr-berkeley-N5K-M56x56-lcn.ascii'
 -- filename = paths.basename(datafile)
@@ -36,18 +43,22 @@ sgd_mse.sizeAverage = false
 inputSize = inputsize * inputsize
 outputSize = nfiltersout
 
-decoder = nn.Linear(outputSize, inputSize)
-decoder.bias:fill(0)
-
+decoder = jzt.Linear(outputSize, inputSize, false)
 code = torch.Tensor(batch_size, outputSize)
-fista_params = {}
-fista_params.L = 256
-fista_params.maxiter = 50
 
-sgd_params = {}
-sgd_params.learningRate = 2e-3
-sgd_params.learningRateDecay = 1e-5
+function f(x, mode)
+   decoder:updateOutput(x)
+   fista_mse:updateOutput(decoder.output, input)
+   fista_mse:updateGradInput(decoder.output, input)
+   decoder:updateGradInput(x, fista_mse.gradInput)
+   return fista_mse.output, decoder.gradInput
+end
 
+function prox(x, L)
+   jzt.shrink(x, 1 / L, x)
+end
+
+fista = new_fista(f, prox, fista_params)
 
 -- float
 X_tr = X_tr:cuda()
@@ -64,34 +75,16 @@ for epoch = 1,10 do
       iter = iter + 1
       input = X_tr:narrow(1, t, batch_size)
 
-      -- 1. update code (fista)
-      function f_fista(x, mode)
-         decoder:updateOutput(x)
-         fista_mse:updateOutput(decoder.output, input)
-         if mode and mode:match('dx') then
-            fista_mse:updateGradInput(decoder.output, input)
-            decoder:updateGradInput(x, fista_mse.gradInput)
-            return fista_mse.output, decoder.gradInput
-         end
-         return fista_mse.output, nil
-      end
-
-      function prox_fista(x, L)
-         jzt.shrink(x, 1 / L, x)
-      end
-
       code:fill(0)
-      f = fista(f_fista, nil, prox_fista, code, fista_params)
+      f = fista(code)
       if f > 1e6 then
          print('f is really big')
       end
 
       -- 2. update encoder and decoder
-      decoder:zeroGradParameters()
+      grad_dec:zero()
       decoder:accGradParameters(code, fista_mse.gradInput)
-      decoder.gradBias:fill(0)
-
-      optim.sgd(function(x) return 0, grad_dec end, dec, sgdconf)
+      dec:add(-sgd_params.learningRate, grad_dec)
 
       -- normalize the dictionary
       jzt.div_mat_vect(decoder.weight, decoder.weight:norm(2, 1), decoder.weight, 1)
@@ -102,10 +95,7 @@ for epoch = 1,10 do
          dweight = dweight:transpose(1,2):unfold(2,inputsize,inputsize)
 
          -- render filters
-         dd = image.toDisplayTensor{input=dweight,
-                                    padding=2,
-                                    nrow=math.floor(math.sqrt(nfiltersout)),
-                                    symmetric=true}
+         dd = image.toDisplayTensor{input=dweight, padding=1, nrow=math.floor(math.sqrt(nfiltersout)), symmetric=true}
 
          image.savePNG(string.format('img/d_%02d_%010d.png', epoch, t), dd)
          print(epoch, t, sys.toc())
